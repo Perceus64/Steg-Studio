@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steganography Studio</title>
+  <style>
+    :root {
+      --bg: #0b0e14; --panel: #141a24; --text: #e6edf3; --muted: #8b98a9;
+      --accent: #38bdf8; --accent2: #f472b6; --line: #253040; --ok: #4ade80; --err: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+           font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; padding: 24px 16px; }
+    main { width: min(760px, 100%); margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+    .sub { color: var(--muted); margin: 4px 0 20px; font-size: 14px; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+    .tabs button { background: none; border: none; color: var(--muted); padding: 10px 16px; font: inherit;
+                   cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    label { display: block; color: var(--muted); font-size: 13px; margin: 14px 0 5px; }
+    input[type=text], input[type=password], textarea, input[type=file] {
+      width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+      border-radius: 8px; padding: 9px 11px; font: inherit; }
+    textarea { resize: vertical; min-height: 80px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+    button.act { background: var(--accent); color: #04151f; border: none; border-radius: 8px;
+                 padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+    button.act:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.ghost { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+                   border-radius: 8px; padding: 10px 18px; font: inherit; cursor: pointer; }
+    canvas { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px;
+             margin-top: 14px; background:
+             repeating-conic-gradient(#1b2330 0% 25%, #141a24 0% 50%) 50% / 20px 20px; }
+    .msg { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 14px; display: none; }
+    .msg.show { display: block; }
+    .msg.ok { background: rgba(74,222,128,.1); color: var(--ok); border: 1px solid rgba(74,222,128,.3); }
+    .msg.err { background: rgba(248,113,113,.1); color: var(--err); border: 1px solid rgba(248,113,113,.3); }
+    .hint { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+    .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .stat .k { color: var(--muted); font-size: 12px; }
+    .stat .v { font-size: 20px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .seg { display: flex; gap: 6px; margin-top: 6px; }
+    .seg button { flex: 1; background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+                  border-radius: 7px; padding: 8px; cursor: pointer; font: inherit; }
+    .seg button.on { color: var(--accent); border-color: var(--accent); }
+    .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent2);
+            border-radius: 6px; padding: 10px 12px; font-size: 13px; color: var(--muted); margin-top: 22px; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Steganography Studio</h1>
+  <p class="sub">Hide an encrypted message or file inside an image, reveal it with the password, or inspect any image for hidden data. Everything runs locally in your browser — nothing is uploaded.</p>
+
+  <div class="tabs">
+    <button data-tab="hide" class="active">Hide</button>
+    <button data-tab="reveal">Reveal</button>
+    <button data-tab="analyze">Analyze</button>
+  </div>
+
+  <!-- HIDE -->
+  <section class="panel active" id="hide">
+    <label>Cover image (PNG or any image — output is always PNG)</label>
+    <input type="file" id="h-img" accept="image/*">
+
+    <div class="seg" id="h-mode">
+      <button class="on" data-m="text">Hide text</button>
+      <button data-m="file">Hide a file</button>
+    </div>
+
+    <div id="h-text-wrap">
+      <label>Secret message</label>
+      <textarea id="h-text" placeholder="Type the message to conceal…"></textarea>
+    </div>
+    <div id="h-file-wrap" style="display:none">
+      <label>Secret file</label>
+      <input type="file" id="h-file">
+    </div>
+
+    <label>Password</label>
+    <input type="password" id="h-pass" placeholder="Used to encrypt the payload (AES-256-GCM)">
+
+    <div class="row">
+      <button class="act" id="h-go" disabled>Embed &amp; download PNG</button>
+      <span class="hint" id="h-cap"></span>
+    </div>
+    <div class="msg" id="h-msg"></div>
+    <canvas id="h-canvas" style="display:none"></canvas>
+  </section>
+
+  <!-- REVEAL -->
+  <section class="panel" id="reveal">
+    <label>Image containing hidden data (must be the PNG, not a re-saved JPEG)</label>
+    <input type="file" id="r-img" accept="image/*">
+    <label>Password</label>
+    <input type="password" id="r-pass" placeholder="The password used when hiding">
+    <div class="row">
+      <button class="act" id="r-go" disabled>Reveal</button>
+    </div>
+    <div class="msg" id="r-msg"></div>
+    <div id="r-out"></div>
+    <canvas id="r-canvas" style="display:none"></canvas>
+  </section>
+
+  <!-- ANALYZE -->
+  <section class="panel" id="analyze">
+    <label>Image to inspect</label>
+    <input type="file" id="a-img" accept="image/*">
+    <div class="stats" id="a-stats" style="display:none">
+      <div class="stat"><div class="k">Capacity</div><div class="v" id="a-cap">–</div></div>
+      <div class="stat"><div class="k">LSB ratio (≈0.5 is normal)</div><div class="v" id="a-ratio">–</div></div>
+      <div class="stat"><div class="k">Chi-square</div><div class="v" id="a-chi">–</div></div>
+      <div class="stat"><div class="k">STG1 signature</div><div class="v" id="a-sig">–</div></div>
+    </div>
+    <div class="row" id="a-view" style="display:none">
+      <span class="hint">View:</span>
+      <button class="ghost" id="a-orig-btn">Original</button>
+      <button class="ghost" id="a-plane-btn">LSB plane</button>
+    </div>
+    <canvas id="a-canvas" style="display:none"></canvas>
+    <p class="hint" id="a-explain"></p>
+  </section>
+
+  <div class="note">
+    <strong>For learning.</strong> LSB steganography is easy to detect (that's what the Analyze tab shows) and is destroyed the moment an image is re-compressed as JPEG or resized — so always keep and share the PNG. The AES-256-GCM layer means that even if someone suspects data is present, they can't read it without the password. These trade-offs are the point of the demo.
+  </div>
+</main>
+
+<script type="module">
+  import init, { hide, reveal, capacity, analyze, lsb_plane } from './pkg/steg_studio.js';
+  await init();
+
+  const $ = s => document.querySelector(s);
+  const show = (el, text, ok) => { el.className = 'msg show ' + (ok ? 'ok' : 'err'); el.textContent = text; };
+
+  // Tabs
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    $('#' + b.dataset.tab).classList.add('active');
+  });
+
+  // Load an image file into a canvas, return its ImageData.
+  function loadImage(file, canvas) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        res(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      };
+      img.onerror = () => rej(new Error('Could not read that image.'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  // ---- HIDE ----
+  let hImageData = null, hMode = 'text';
+  const hCanvas = $('#h-canvas');
+
+  $('#h-mode').onclick = e => {
+    if (!e.target.dataset.m) return;
+    hMode = e.target.dataset.m;
+    document.querySelectorAll('#h-mode button').forEach(b => b.classList.toggle('on', b.dataset.m === hMode));
+    $('#h-text-wrap').style.display = hMode === 'text' ? '' : 'none';
+    $('#h-file-wrap').style.display = hMode === 'file' ? '' : 'none';
+  };
+
+  $('#h-img').onchange = async e => {
+    if (!e.target.files[0]) return;
+    try {
+      hImageData = await loadImage(e.target.files[0], hCanvas);
+      const cap = capacity(hImageData.data.length);
+      $('#h-cap').textContent = `capacity: ${cap.toLocaleString()} bytes`;
+      $('#h-go').disabled = false;
+    } catch (err) { show($('#h-msg'), err.message, false); }
+  };
+
+  $('#h-go').onclick = async () => {
+    try {
+      let payload;
+      if (hMode === 'text') {
+        payload = new TextEncoder().encode($('#h-text').value);
+        if (payload.length === 0) throw new Error('Enter a message first.');
+      } else {
+        const f = $('#h-file').files[0];
+        if (!f) throw new Error('Choose a file first.');
+        payload = new Uint8Array(await f.arrayBuffer());
+      }
+      const pass = $('#h-pass').value;
+      if (!pass) throw new Error('Enter a password.');
+
+      const out = hide(new Uint8Array(hImageData.data), payload, pass);
+      const ctx = hCanvas.getContext('2d');
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(out), hCanvas.width, hCanvas.height), 0, 0);
+      hCanvas.style.display = 'block';
+
+      hCanvas.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'hidden.png';
+        a.click();
+      }, 'image/png');
+      show($('#h-msg'), `Embedded ${payload.length.toLocaleString()} bytes and downloaded hidden.png. Share that PNG — don't convert it to JPEG.`, true);
+    } catch (err) { show($('#h-msg'), err.message || String(err), false); }
+  };
+
+  // ---- REVEAL ----
+  let rImageData = null;
+  $('#r-img').onchange = async e => {
+    if (!e.target.files[0]) return;
+    try { rImageData = await loadImage(e.target.files[0], $('#r-canvas')); $('#r-go').disabled = false; }
+    catch (err) { show($('#r-msg'), err.message, false); }
+  };
+
+  $('#r-go').onclick = () => {
+    $('#r-out').innerHTML = '';
+    try {
+      const pass = $('#r-pass').value;
+      if (!pass) throw new Error('Enter the password.');
+      const bytes = reveal(new Uint8Array(rImageData.data), pass);
+
+      // Try to show as text; if it isn't valid UTF-8, offer a download.
+      let text = null;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { /* binary */ }
+      if (text !== null) {
+        const ta = document.createElement('textarea');
+        ta.readOnly = true; ta.value = text; ta.style.marginTop = '14px'; ta.style.minHeight = '120px';
+        $('#r-out').appendChild(ta);
+        show($('#r-msg'), `Recovered ${bytes.length.toLocaleString()} bytes.`, true);
+      } else {
+        const a = document.createElement('a');
+        const blob = new Blob([bytes]);
+        a.href = URL.createObjectURL(blob); a.download = 'revealed.bin';
+        a.textContent = `Download recovered file (${bytes.length.toLocaleString()} bytes)`;
+        a.className = 'act'; a.style.display = 'inline-block'; a.style.marginTop = '14px';
+        a.style.textDecoration = 'none'; a.style.padding = '10px 18px';
+        $('#r-out').appendChild(a);
+        show($('#r-msg'), 'Recovered a binary file.', true);
+      }
+    } catch (err) { show($('#r-msg'), (err.message || String(err)), false); }
+  };
+
+  // ---- ANALYZE ----
+  let aImageData = null, aPlane = null;
+  const aCanvas = $('#a-canvas');
+
+  $('#a-img').onchange = async e => {
+    if (!e.target.files[0]) return;
+    try {
+      aImageData = await loadImage(e.target.files[0], aCanvas);
+      const r = analyze(new Uint8Array(aImageData.data));
+      $('#a-cap').textContent = r.capacity_bytes.toLocaleString() + ' B';
+      $('#a-ratio').textContent = r.lsb_ratio.toFixed(4);
+      $('#a-chi').textContent = Math.round(r.chi_square).toLocaleString();
+      $('#a-sig').textContent = r.has_signature ? 'FOUND' : 'none';
+      $('#a-sig').style.color = r.has_signature ? 'var(--err)' : 'var(--muted)';
+      $('#a-stats').style.display = 'grid';
+      $('#a-view').style.display = 'flex';
+
+      aPlane = lsb_plane(new Uint8Array(aImageData.data));
+      drawOriginal();
+      $('#a-explain').textContent = r.has_signature
+        ? 'This image carries data hidden by this tool (STG1 signature present). The LSB plane below will look structured, not like natural noise.'
+        : 'No STG1 signature. A natural photo shows an LSB ratio near 0.5 and a noisy LSB plane; flat or patterned regions in the plane can hint at embedded data from other tools.';
+    } catch (err) { $('#a-explain').textContent = err.message; }
+  };
+
+  function drawOriginal() {
+    aCanvas.getContext('2d').putImageData(aImageData, 0, 0);
+    aCanvas.style.display = 'block';
+  }
+  function drawPlane() {
+    aCanvas.getContext('2d').putImageData(
+      new ImageData(new Uint8ClampedArray(aPlane), aCanvas.width, aCanvas.height), 0, 0);
+    aCanvas.style.display = 'block';
+  }
+  $('#a-orig-btn').onclick = drawOriginal;
+  $('#a-plane-btn').onclick = drawPlane;
+</script>
+</body>
+</html>
